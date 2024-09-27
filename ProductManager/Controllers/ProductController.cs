@@ -1,4 +1,4 @@
-﻿//using Microsoft.AspNetCore.Mvc;
+//using Microsoft.AspNetCore.Mvc;
 //using ProductManager.Services;
 
 //namespace ProductManager.Controllers
@@ -24,7 +24,6 @@ using Microsoft.EntityFrameworkCore; // For Include
 using ProductManager.Models;
 using ProductManager.Services;
 using ProductManager.ViewModels; // Add this using directive for your ViewModel
-using System.Linq;
 
 namespace ProductManager.Controllers
 {
@@ -133,20 +132,22 @@ namespace ProductManager.Controllers
             return RedirectToAction("Index"); // This refreshes the page to show updated data
         }
 
-        [HttpGet]
-        public async Task<IActionResult> Edit(int id)
+
+        public IActionResult Edit(int id)
         {
-            var product = await context.Prodct
+            // Fetch the product by ID and include associated categories
+            var product = context.Prodct
                 .Include(p => p.ProductCategories)
-                    .ThenInclude(pc => pc.Category)
-                .FirstOrDefaultAsync(p => p.ProductID == id);
+                .ThenInclude(pc => pc.Category)
+                .FirstOrDefault(p => p.ProductID == id);
 
             if (product == null)
             {
-                return NotFound();
+                return RedirectToAction("Index", "Product");
             }
 
-            var model = new ProductViewModel
+            // Create a ViewModel with product details
+            var productViewModel = new ProductViewModel()
             {
                 ProductID = product.ProductID,
                 ProductName = product.ProductName,
@@ -156,9 +157,10 @@ namespace ProductManager.Controllers
                 Categories = product.ProductCategories.Select(pc => pc.Category.CategoryName).ToList()
             };
 
-            ViewBag.AllCategories = await context.Categories.ToListAsync();
+            // Load all categories for the view (dropdown, etc.)
+            ViewBag.AllCategories = context.Categories.ToList();
 
-            return View(model);
+            return View(productViewModel);
         }
 
 
@@ -167,14 +169,15 @@ namespace ProductManager.Controllers
         {
             if (!ModelState.IsValid)
             {
-                // Reload the categories in case of an error
+                // Reload categories in case of validation error
                 ViewBag.AllCategories = context.Categories.ToList();
                 return View(model);
             }
 
+            // Find the product by ID, including related categories
             var product = context.Prodct
                 .Include(p => p.ProductCategories)
-                .ThenInclude(pc => pc.Category)  // Ensure that Categories are included
+                .ThenInclude(pc => pc.Category)
                 .FirstOrDefault(p => p.ProductID == model.ProductID);
 
             if (product == null)
@@ -182,14 +185,14 @@ namespace ProductManager.Controllers
                 return NotFound();
             }
 
-            // Update product fields
+            // Update product details
             product.ProductName = model.ProductName;
             product.Price = model.Price;
             product.Quantity = model.Quantity;
             product.Tags = model.Tags;
 
-            // Update categories (ProductCategories)
-            product.ProductCategories.Clear(); // Remove existing categories
+            // Clear existing categories and update with new ones
+            product.ProductCategories.Clear();
 
             if (model.Categories != null && model.Categories.Count > 0)
             {
@@ -202,20 +205,65 @@ namespace ProductManager.Controllers
                         {
                             ProductID = product.ProductID,
                             CategoryID = category.CategoryID,
-                            Product = product,            // Set required Product
-                            Category = category           // Set required Category
+                            Product = product,
+                            Category = category
                         });
                     }
                 }
             }
 
+            // Save changes to the database
             context.SaveChanges();
 
             return RedirectToAction("Index");
         }
 
+      [Route("Product")]
+
+
+
+        // For search functionality
+        [HttpGet("Search")]
+        public IActionResult Search(string searchTag, string searchCategory)
+        {
+            // Start by querying the database for products and their associated categories
+            var query = context.Prodct
+                .Include(p => p.ProductCategories)
+                .ThenInclude(pc => pc.Category)
+                .AsQueryable();
+
+            // Filter by tag if provided
+            if (!string.IsNullOrEmpty(searchTag))
+            {
+                query = query.Where(p => p.Tags != null && p.Tags.Contains(searchTag, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Filter by category if provided
+            if (!string.IsNullOrEmpty(searchCategory))
+            {
+                query = query.Where(p => p.ProductCategories.Any(pc => pc.Category.CategoryName.Equals(searchCategory, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            // Execute the query and project it into the view model
+            var productViewModels = query.Select(p => new ProductViewModel
+            {
+                ProductID = p.ProductID,
+                ProductName = p.ProductName,
+                Price = p.Price,
+                Quantity = p.Quantity,
+                Tags = p.Tags,
+                Categories = p.ProductCategories.Select(pc => pc.Category.CategoryName).ToList()
+            }).ToList();
+
+            // Return the Index view and pass the search results to it
+            return View("Index", productViewModels);
+        }
+
 
     }
+
+
 }
+
 
 
